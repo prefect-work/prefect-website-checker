@@ -4,5 +4,5 @@ websites = [
     {"url": "https://google.com", "check_str": "<div class=\"gb_Id\">Google apps</div>"},
 ]
 
-json_block = JSON(value={"the_answer": 42})
-json_block.save('website-checker')
+json_block = JSON(value=websites)
+json_block.save('website-checker-test', overwrite=True)
