@@ -1,5 +1,10 @@
 # prefect artifacts
 .prefectignore
+requirements.txt
+deploy.py
+*_block.py
+README.md
+dev_*
 
 # python artifacts
 __pycache__/

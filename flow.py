@@ -1,57 +1,71 @@
-import asyncio
-from typing import List
-from prefect import flow, task, get_run_logger
-from prefect.orion.schemas.states import Failed
-from prefect.task_runners import ConcurrentTaskRunner
+from time import sleep
+from prefect import flow, get_run_logger
 from prefect.blocks.system import JSON
-# from prefect_email import
-from pydantic import BaseModel
+from prefect_email import EmailServerCredentials, email_send_message
 import requests
-
-
-class WebsiteDown(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-
-def clean_flow_name(name: str):
-    return f"website-checker-{name.replace('https://', '').replace('/', '-')}"
+from requests.exceptions import RequestException
+from support import Website, clean_flow_name, email_str
 
 
 @flow()
-async def url_checker(url: str, check_str: str):
+def url_checker(url: str, check_str: str, timeout: float):
     logger = get_run_logger()
-    
-    headers={'content-type': 'text/html', "User-Agent": "Mozilla 5.0 (Windows NT 10.0)"}
-    results = requests.get(url, headers=headers)
-    logger.info(f"{url} response: {results.status_code}")
 
+    headers={'content-type': 'text/html', "User-Agent": "Mozilla 5.0 (Windows NT 10.0)"}
+    attempt = True
+    try_n = 0
+    while attempt == True:
+        try:
+            results = requests.get(url, headers=headers, timeout=timeout)
+            logger.info(f"{url} response: {results.status_code}")
+            if results.status_code == 200 or try_n >= 3:
+                if check_str not in str(results.text):
+                    message = f"{url} can't be reached"
+                    logger.warning(message)
+                    return False
+                else:
+                    logger.info(f"{url} is OK")
+                    return True
+            try_n += 1
+            sleep(2)
+        except RequestException as e:
+            logger.info(f"TIMEOUT: {url} unreachable after trying for {timeout} seconds.")
+            logger.error(f'Error String: {e}')
+            if try_n <= 3:
+                try_n += 1
+            else:
+                return False
+            
     if check_str not in str(results.text):
         message = f"{url} can't be reached"
         logger.warning(message)
-        raise WebsiteDown(message)
+        return False
     else:
         logger.info(f"{url} is OK")
+        return True
 
 
-class Websites(BaseModel):
-    url: str
-    check_str: str
-
-
-sites_json = JSON.load('website-checker')
-sites = [Websites(**x) for x in sites_json.value]
-
-
-@flow(name="Website Checker", task_runner=ConcurrentTaskRunner)
-async def website_checker(sites: List[Websites] = sites):
+@flow(name="Website Checker")
+def website_checker(timeout: float = 15):
+    logger = get_run_logger()
+    
+    sites_json = JSON.load('website-checker')
+    sites = [Website(**x) for x in sites_json.value]
+    email_credentials = EmailServerCredentials.load('gmail-darridapy')
+    
     for site in sites:
-        name = clean_flow_name(site.url)
-        await url_checker.with_options(name=name)(site.url, site.check_str, return_state=True)
+        flow_name = clean_flow_name(site.url)
+        up = url_checker.with_options(name=flow_name)(site.url, site.check_str, timeout)
+        if not up:
+            message = email_str(site)
+            email_send_message(
+                email_server_credentials=email_credentials,
+                subject=f"Website Checker: {site.url} is unreachable",
+                msg=message,
+                email_to=site.email_to,
+            )
+            logger.info(f"Sent 'unreachable' email to {site.email_to} for {site.url}")
 
 
 if __name__ == "__main__":
-    state = asyncio.run(website_checker())
-
-
-# prefect deployment build flow_website_checker.py:website_checker -sb s3/noaa-data -ib docker-container/prefect-shared-2-3-1 --path website_checker -n website_checker
+    website_checker(timeout=15)

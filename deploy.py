@@ -4,14 +4,14 @@ from prefect.filesystems import S3
 from prefect.infrastructure import DockerContainer
 
 
-s3 = S3.load('noaa-data')
+s3 = S3.load('bucket')
 docker = DockerContainer.load('prefect-shared-2-3-1')
 
 
 deployment = Deployment.build_from_flow(
     flow=website_checker,
     name="Website Checker",
-    version="1",
+    version="3",
     tags=["uptime-check"],
     storage=s3,
     infrastructure=docker,
