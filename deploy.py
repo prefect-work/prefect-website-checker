@@ -4,7 +4,7 @@ from prefect.filesystems import S3
 from prefect.infrastructure import DockerContainer
 
 
-s3 = S3.load('bucket')
+s3 = S3.load('data-noaa')
 docker = DockerContainer.load('prefect-shared-2-3-1')
 
 
